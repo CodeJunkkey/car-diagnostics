@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Car Diagnostics</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --fg:#e8eaf0; --muted:#8b91a1; --ok:#2ecc71; --bad:#e74c3c; --warn:#f39c12; --line:#262a33; --accent:#4c8dff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:900px; margin:0 auto; padding:24px 16px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  h1 { font-size:22px; margin:0; }
+  button { background:#2b3140; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  button:hover { background:#353c4e; } button:disabled { opacity:.5; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { border-color:var(--bad); color:var(--bad); }
+  select { background:#2b3140; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:14px; min-width:260px; }
+  .hidden { display:none !important; }
+  /* setup steps */
+  .step { display:flex; gap:14px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .step .n { width:30px; height:30px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-weight:700; background:#2b3140; color:var(--muted); }
+  .step.active .n { background:var(--accent); color:#fff; }
+  .step.done .n { background:var(--ok); color:#06220f; }
+  .step.error .n { background:var(--bad); color:#fff; }
+  .step .t { font-weight:600; margin-bottom:4px; }
+  .step .d { color:var(--muted); font-size:14px; }
+  .step .d b { color:var(--fg); }
+  .step .d code { background:#2b3140; padding:1px 6px; border-radius:5px; font-size:13px; }
+  .step .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .step .err { color:var(--bad); margin-top:8px; font-size:14px; }
+  .step .d ul { margin:8px 0 0; padding-left:18px; }
+  /* dashboard */
+  .banner { padding:18px 20px; border-radius:12px; font-size:18px; font-weight:600; margin-bottom:20px; }
+  .banner.ok { background:rgba(46,204,113,.12); color:var(--ok); }
+  .banner.bad { background:rgba(231,76,60,.12); color:var(--bad); }
+  .banner.warn { background:rgba(243,156,18,.12); color:var(--warn); }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:24px 0 10px; }
+  h2 small { text-transform:none; letter-spacing:0; font-weight:400; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:12px 16px; border-top:1px solid var(--line); vertical-align:top; }
+  tr:first-child td { border-top:0; }
+  td.code { font-family:ui-monospace, Menlo, monospace; font-weight:700; white-space:nowrap; width:1%; }
+  .empty { padding:16px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .tile .v { font-size:24px; font-weight:700; } .tile .v span { font-size:13px; color:var(--muted); margin-left:4px; }
+  .tile .l { color:var(--muted); font-size:12px; }
+  footer { color:var(--muted); font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Car Diagnostics</h1>
+    <div id="dash-actions" class="hidden">
+      <button onclick="scan()">Refresh</button>
+      <button id="clear" class="danger" onclick="clearCodes()" disabled>Clear codes</button>
+      <button onclick="disconnect()">Change device</button>
+    </div>
+  </header>
+
+  <section id="setup">
+    <div class="step" id="s1">
+      <div class="n">1</div>
+      <div>
+        <div class="t">Start the Mac agent</div>
+        <div class="d" id="s1d">Checking…</div>
+      </div>
+    </div>
+    <div class="step" id="s2">
+      <div class="n">2</div>
+      <div style="flex:1">
+        <div class="t">Choose the OBDII scanner</div>
+        <div class="d" id="s2d">Waiting for step 1.</div>
+        <div class="row hidden" id="s2row">
+          <select id="ports"></select>
+          <button class="primary" id="connect" onclick="connect()">Connect</button>
+        </div>
+        <div class="err hidden" id="s2err"></div>
+      </div>
+    </div>
+    <div class="step" id="s3">
+      <div class="n">3</div>
+      <div>
+        <div class="t">Talk to the car</div>
+        <div class="d" id="s3d">Waiting for step 2.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="dash" class="hidden">
+    <div id="banner" class="banner"></div>
+    <h2>Stored faults</h2>
+    <div class="card" id="stored"></div>
+    <h2>Pending faults <small>(seen once, not yet confirmed)</small></h2>
+    <div class="card" id="pending"></div>
+    <h2>Live data</h2>
+    <div class="grid" id="live"></div>
+    <footer id="foot"></footer>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const show = (id, on) => $(id).classList.toggle('hidden', !on);
+const step = (id, cls, html) => { $(id).className = 'step ' + cls; if (html !== undefined) $(id + 'd').innerHTML = html; };
+let timer = null, busy = false;
+const later = ms => { clearTimeout(timer); timer = setTimeout(tick, ms); };
+
+const PAIR_HINT = `<ul>
+  <li>Plug the scanner into the car's OBD port (under the dashboard, driver side). Turn the ignition on.</li>
+  <li>Mac: <b>System Settings → Bluetooth</b> → pair <b>OBDII</b> (PIN <code>1234</code> or <code>0000</code>). One time only.</li>
+</ul>`;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) } : {});
+  return r.json();
+}
+
+async function tick() {
+  if (busy) return;
+  let a;
+  try { a = await api('/api/agent'); } catch (e) { a = { agent: false, error: String(e) }; }
+
+  if (!a.agent) {
+    step('s1', 'active', `On your Mac, open the project folder in Finder and <b>double-click “Run Diagnostics.command”</b>.
+      A Terminal window opens — leave it open. This page updates by itself.
+      <br><span style="font-size:13px">If macOS refuses to open it: right-click → Open. Nothing gets installed.</span>`);
+    step('s2', '', 'Waiting for step 1.'); show('s2row', false);
+    step('s3', '', 'Waiting for step 2.');
+    return later(3000);
+  }
+  step('s1', 'done', 'Agent is running on your Mac.');
+
+  if (!a.port) {
+    const ports = a.ports || [];
+    const sel = $('ports'); const prev = sel.value;
+    sel.innerHTML = ports.map(p => `<option value="${p.path}" ${p.suggested ? 'selected' : ''}>${p.path.replace('/dev/cu.', '')}${p.suggested ? '  (looks like the scanner)' : ''}</option>`).join('');
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    const hasScanner = ports.some(p => p.suggested);
+    step('s2', hasScanner ? 'active' : 'error',
+      hasScanner ? 'Pick the scanner and press Connect.' : 'No OBDII scanner visible yet.' + PAIR_HINT + '<div style="margin-top:8px">List refreshes automatically.</div>');
+    show('s2row', ports.length > 0);
+    if (a.error) { $('s2err').textContent = a.error; show('s2err', true); }
+    step('s3', '', 'Waiting for step 2.');
+    return later(4000);
+  }
+  step('s2', 'done', `Using <b>${a.port.replace('/dev/cu.', '')}</b>.`); show('s2row', false); show('s2err', false);
+  step('s3', 'active', 'Connecting to the car… (up to 30 s on first try)');
+  await scan();
+}
+
+async function connect() {
+  busy = true; $('connect').disabled = true; show('s2err', false);
+  const r = await api('/api/connect', { port: $('ports').value });
+  if (!r.ok) { $('s2err').textContent = r.error || 'Could not open the device.'; show('s2err', true); }
+  busy = false; $('connect').disabled = false;
+  tick();
+}
+
+async function disconnect() {
+  await api('/api/disconnect', {});
+  show('dash', false); show('dash-actions', false); show('setup', true);
+  tick();
+}
+
+function rows(list) {
+  if (!list.length) return '<div class="empty">None</div>';
+  return '<table>' + list.map(c => `<tr><td class="code">${c.code}</td><td>${c.description}</td></tr>`).join('') + '</table>';
+}
+
+async function scan() {
+  busy = true;
+  let d;
+  try { d = await api('/api/scan'); } catch (e) { d = { connected: false, error: String(e) }; }
+  busy = false;
+  if (!d.connected) {
+    show('dash', false); show('dash-actions', false); show('setup', true);
+    step('s3', 'error', `The scanner is open but the car is not answering (${d.error || d.status || 'no response'}).
+      Is the ignition on? Is the scanner's light blinking? Retrying automatically…`);
+    return later(5000);
+  }
+  clearTimeout(timer);
+  show('setup', false); show('dash', true); show('dash-actions', true);
+  const b = $('banner');
+  if (d.mil || d.stored.length) { b.className = 'banner bad'; b.textContent = `⚠ Check Engine light ON · ${d.stored.length} stored fault${d.stored.length === 1 ? '' : 's'}`; }
+  else if (d.pending.length) { b.className = 'banner warn'; b.textContent = `${d.pending.length} pending fault${d.pending.length === 1 ? '' : 's'} — not confirmed yet`; }
+  else { b.className = 'banner ok'; b.textContent = '✓ No faults reported by the engine computer'; }
+  $('stored').innerHTML = rows(d.stored);
+  $('pending').innerHTML = rows(d.pending);
+  $('live').innerHTML = Object.values(d.live).map(x =>
+    `<div class="tile"><div class="v">${x.value}<span>${x.unit}</span></div><div class="l">${x.desc}</div></div>`).join('');
+  $('foot').textContent = `${d.protocol} · ${new Date().toLocaleTimeString()}`;
+  $('clear').disabled = !(d.stored.length + d.pending.length);
+}
+
+async function clearCodes() {
+  if (!confirm('Clear all stored codes and reset the Check Engine light?\nFreeze-frame data will be lost.')) return;
+  await api('/api/clear', {});
+  scan();
+}
+
+tick();
+</script>
+</body>
+</html>
